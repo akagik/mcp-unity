@@ -34,12 +34,48 @@ namespace McpUnity.Unity
         /// <summary>
         /// Static constructor that gets called when Unity loads due to InitializeOnLoad attribute
         /// </summary>
+        private static bool _pendingServerStart = false;
+        private static double _serverStartTime = 0;
+        
         static McpUnityServer()
         {
             EditorApplication.delayCall += () => {
                 // Ensure Instance is created and hooks are set up after initial domain load
                 var currentInstance = Instance;
             };
+        }
+        
+        [InitializeOnLoadMethod]
+        private static void InitializeOnAssemblyReload()
+        {
+            // This method is called after domain reload, even when Unity is not focused
+            // Schedule server start with a delay
+            if (McpUnitySettings.Instance.AutoStartServer)
+            {
+                _pendingServerStart = true;
+                _serverStartTime = EditorApplication.timeSinceStartup;
+                EditorApplication.update += TryStartServerDelayed;
+                McpLogger.LogInfo("[InitializeOnAssemblyReload] Scheduled server start after assembly reload");
+            }
+        }
+        
+        private static void TryStartServerDelayed()
+        {
+            if (!_pendingServerStart) return;
+            
+            double elapsedTime = EditorApplication.timeSinceStartup - _serverStartTime;
+            
+            if (elapsedTime >= 0.5)
+            {
+                _pendingServerStart = false;
+                EditorApplication.update -= TryStartServerDelayed;
+                
+                if (!Instance.IsListening)
+                {
+                    McpLogger.LogInfo("[TryStartServerDelayed] Starting server after delay...");
+                    Instance.StartServer();
+                }
+            }
         }
         
         /// <summary>
@@ -83,6 +119,9 @@ namespace McpUnity.Unity
 
             EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+            
+            EditorApplication.focusChanged -= OnEditorFocusChanged;
+            EditorApplication.focusChanged += OnEditorFocusChanged;
 
             InstallServer();
             InitializeServices();
@@ -117,6 +156,8 @@ namespace McpUnity.Unity
         /// </summary>
         public void StartServer()
         {
+            McpLogger.LogInfo("[StartServer] Called. Current IsListening=" + IsListening);
+            
             if (IsListening)
             {
                 McpLogger.LogInfo($"Server start requested, but already listening on port {McpUnitySettings.Instance.Port}.");
@@ -325,9 +366,19 @@ namespace McpUnity.Unity
         /// </summary>
         private static void OnAfterAssemblyReload()
         {
+            McpLogger.LogInfo("[OnAfterAssemblyReload] Called. AutoStart=" + McpUnitySettings.Instance.AutoStartServer + ", IsListening=" + Instance.IsListening);
+            
             if (McpUnitySettings.Instance.AutoStartServer && !Instance.IsListening)
             {
-                Instance.StartServer();
+                // Use the delayed start mechanism instead of immediate start
+                // This ensures the server starts even when Unity is not focused
+                if (!_pendingServerStart)
+                {
+                    _pendingServerStart = true;
+                    _serverStartTime = EditorApplication.timeSinceStartup;
+                    EditorApplication.update += TryStartServerDelayed;
+                    McpLogger.LogInfo("[OnAfterAssemblyReload] Scheduled delayed server start");
+                }
             }
         }
 
@@ -358,6 +409,20 @@ namespace McpUnity.Unity
                         Instance.StartServer();
                     }
                     break;
+            }
+        }
+        
+        /// <summary>
+        /// Handles Unity Editor focus changes.
+        /// Attempts to start the server when Unity regains focus if auto-start is enabled.
+        /// </summary>
+        /// <param name="hasFocus">Whether Unity Editor has focus.</param>
+        private static void OnEditorFocusChanged(bool hasFocus)
+        {
+            if (hasFocus && McpUnitySettings.Instance.AutoStartServer && !Instance.IsListening)
+            {
+                McpLogger.LogInfo("[OnEditorFocusChanged] Unity gained focus. Attempting to start server...");
+                Instance.StartServer();
             }
         }
     }
