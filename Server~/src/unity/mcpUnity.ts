@@ -39,6 +39,9 @@ export class McpUnity {
   private pendingRequests: Map<string, PendingRequest> = new Map<string, PendingRequest>();
   private requestTimeout = 10000;
   private retryDelay = 1000;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 10;
+  private isReconnecting = false;
   
   constructor(logger: Logger) {
     this.logger = logger;
@@ -146,9 +149,29 @@ export class McpUnity {
         
       this.ws.onclose = () => {
         this.logger.debug('WebSocket closed');
+        const wasReconnecting = this.isReconnecting;
         this.disconnect();
-        //this.logger.debug('WebSocket closed. Reconnecting in', this.retryDelay);
-        //setTimeout(this.connect, this.retryDelay);
+        
+        // Auto-reconnect after Unity domain reload
+        if (!wasReconnecting && this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.isReconnecting = true;
+          const delay = this.calculateBackoff();
+          this.logger.debug(`WebSocket closed. Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
+          
+          setTimeout(() => {
+            this.reconnectAttempts++;
+            this.connect().then(() => {
+              this.logger.info('Reconnection successful');
+              this.reconnectAttempts = 0;
+              this.isReconnecting = false;
+            }).catch(err => {
+              this.logger.error('Reconnection failed:', err);
+              this.isReconnecting = false;
+            });
+          }, delay);
+        } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+          this.logger.error(`Max reconnection attempts (${this.maxReconnectAttempts}) reached. Giving up.`);
+        }
       };
     });
   }
@@ -180,6 +203,14 @@ export class McpUnity {
     }
   }
   
+  /**
+   * Calculate exponential backoff delay for reconnection
+   */
+  private calculateBackoff(): number {
+    // Exponential backoff: 1s, 2s, 4s, 8s, ..., max 30s
+    return Math.min(this.retryDelay * Math.pow(2, this.reconnectAttempts), 30000);
+  }
+
   /**
    * Disconnect from Unity
    */
@@ -221,9 +252,11 @@ export class McpUnity {
   /**
    * Tries to reconnect to Unity
    */
-  private reconnect(): void {
+  private async reconnect(): Promise<void> {
     this.disconnect();
-    this.connect();
+    // Small delay to ensure clean disconnection
+    await new Promise(resolve => setTimeout(resolve, 100));
+    await this.connect();
   }
 
   /**
@@ -266,7 +299,9 @@ export class McpUnity {
           this.pendingRequests.delete(requestId);
           reject(new McpUnityError(ErrorType.TIMEOUT, 'Request timed out'));
         }
-        this.reconnect();
+        this.reconnect().catch(err => {
+          this.logger.error('Reconnection after timeout failed:', err);
+        });
       }, this.requestTimeout);
       
       // Store pending request
