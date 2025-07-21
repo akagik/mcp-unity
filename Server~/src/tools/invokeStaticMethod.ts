@@ -48,33 +48,7 @@ export function registerInvokeStaticMethodTool(server: McpServer, mcpUnity: McpU
   server.tool(
     toolName,
     toolDescription,
-    {
-      typeName: {
-        type: 'string',
-        description: 'Full type name including namespace (e.g., UnityEngine.Debug, MyNamespace.MyClass)'
-      },
-      methodName: {
-        type: 'string',
-        description: 'Method name to invoke'
-      },
-      parameters: {
-        type: 'array',
-        description: 'Method parameters',
-        items: {
-          type: 'object',
-          properties: {
-            type: {
-              type: 'string',
-              description: 'Parameter type (e.g., string, int, float, bool, Vector3, GameObject)'
-            },
-            value: {
-              description: 'Parameter value'
-            }
-          },
-          required: ['type', 'value']
-        }
-      }
-    },
+    paramsSchema.shape,
     async (params: any) => {
       try {
         logger.info(`Executing tool: ${toolName}`, params);
