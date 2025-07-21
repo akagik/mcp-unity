@@ -290,6 +290,10 @@ namespace McpUnity.Unity
             // Register AddAssetToSceneTool
             AddAssetToSceneTool addAssetToSceneTool = new AddAssetToSceneTool();
             _tools.Add(addAssetToSceneTool.Name, addAssetToSceneTool);
+            
+            // Register InvokeStaticMethodTool
+            InvokeStaticMethodTool invokeStaticMethodTool = new InvokeStaticMethodTool();
+            _tools.Add(invokeStaticMethodTool.Name, invokeStaticMethodTool);
         }
         
         /// <summary>
