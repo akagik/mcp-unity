@@ -120,3 +120,14 @@ Server~/build/*
 Server~/node_modules/*
 .bmad-core/
 .windsurf/
+
+# Documentation files without meta files
+AI_INSTRUCTIONS.md
+CLAUDE.md
+docs/claude-md-invoke-static-method-template.md
+docs/custom-api-guide.md
+docs/domain-reload-investigation.md
+docs/domain-reload-reconnection-proposal.md
+docs/invoke-static-method-guide.md
+docs/report.md
+docs/summary.md
