@@ -123,11 +123,20 @@ Server~/node_modules/*
 
 # Documentation files without meta files
 AI_INSTRUCTIONS.md
+AI_INSTRUCTIONS.md.meta
 CLAUDE.md
+CLAUDE.md.meta
 docs/claude-md-invoke-static-method-template.md
+docs/claude-md-invoke-static-method-template.md.meta
 docs/custom-api-guide.md
+docs/custom-api-guide.md.meta
 docs/domain-reload-investigation.md
+docs/domain-reload-investigation.md.meta
 docs/domain-reload-reconnection-proposal.md
+docs/domain-reload-reconnection-proposal.md.meta
 docs/invoke-static-method-guide.md
+docs/invoke-static-method-guide.md.meta
 docs/report.md
+docs/report.md.meta
 docs/summary.md
+docs/summary.md.meta
