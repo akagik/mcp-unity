@@ -85,6 +85,10 @@ The following tools are available for manipulating and querying Unity scenes and
 - `add_asset_to_scene`: Adds an asset from the AssetDatabase to the Unity scene
   > **Example prompt:** "Add the Player prefab from my project to the current scene"
 
+- `invoke_static_method`: Invokes any static method with specified parameters, including async methods (Task, Task<T>, UniTask, UniTask<T>)
+  > **Example prompt:** "Call Debug.Log with the message 'Hello from MCP'"
+  > **Example prompt:** "Invoke the async method DataService.FetchDataAsync to retrieve data"
+
 ### MCP Server Resources
 
 - `unity://menu-items`: Retrieves a list of all available menu items in the Unity Editor to facilitate `execute_menu_item` tool
@@ -398,6 +402,15 @@ Yes, absolutely! One of the significant benefits of the MCP Unity architecture i
 -   **In Node.js Server (TypeScript):** You would then define the corresponding TypeScript tool handler in the `Server/src/tools/` directory, including its Zod schema for inputs/outputs, and register it in `Server/src/index.ts`. This Node.js part will forward the request to your new C# tool in Unity.
 
 This allows you to tailor the AI's capabilities to the specific needs and workflows of your game or application.
+
+**Advanced Feature: Dynamic Method Invocation**
+The `invoke_static_method` tool provides powerful access to any static method in your Unity project, including:
+- Synchronous methods with immediate execution
+- Asynchronous methods returning `Task`, `Task<T>`, `UniTask`, or `UniTask<T>`
+- Complex parameter types including Unity-specific types (Vector3, Color, etc.)
+- Automatic handling of method return values
+
+For detailed usage, see the [invoke-static-method-guide.md](docs/invoke-static-method-guide.md) documentation.
 
 </details>
 

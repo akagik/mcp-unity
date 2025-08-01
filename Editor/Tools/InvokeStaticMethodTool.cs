@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Reflection;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEditor;
 using Newtonsoft.Json.Linq;
@@ -11,7 +12,7 @@ using McpUnity.Utils;
 namespace McpUnity.Tools
 {
     /// <summary>
-    /// Tool for invoking arbitrary static methods with parameters
+    /// Tool for invoking arbitrary static methods with parameters, including async methods
     /// </summary>
     public class InvokeStaticMethodTool : McpToolBase
     {
@@ -19,10 +20,10 @@ namespace McpUnity.Tools
         {
             Name = "invoke_static_method";
             Description = "Invokes any static method with specified parameters";
-            IsAsync = false;
+            IsAsync = true; // Always async to support both sync and async methods
         }
         
-        public override JObject Execute(JObject parameters)
+        public override async void ExecuteAsync(JObject parameters, TaskCompletionSource<JObject> tcs)
         {
             try
             {
@@ -34,19 +35,22 @@ namespace McpUnity.Tools
                 // Validation
                 if (string.IsNullOrEmpty(typeName))
                 {
-                    return CreateErrorResponse("Required parameter 'typeName' not provided");
+                    tcs.SetResult(CreateErrorResponse("Required parameter 'typeName' not provided"));
+                    return;
                 }
                 
                 if (string.IsNullOrEmpty(methodName))
                 {
-                    return CreateErrorResponse("Required parameter 'methodName' not provided");
+                    tcs.SetResult(CreateErrorResponse("Required parameter 'methodName' not provided"));
+                    return;
                 }
                 
                 // Find the type
                 Type targetType = FindType(typeName);
                 if (targetType == null)
                 {
-                    return CreateErrorResponse($"Type '{typeName}' not found");
+                    tcs.SetResult(CreateErrorResponse($"Type '{typeName}' not found"));
+                    return;
                 }
                 
                 // Prepare method parameters
@@ -63,7 +67,8 @@ namespace McpUnity.Tools
                         var param = methodParams[i] as JObject;
                         if (param == null)
                         {
-                            return CreateErrorResponse($"Parameter at index {i} is not an object");
+                            tcs.SetResult(CreateErrorResponse($"Parameter at index {i} is not an object"));
+                            return;
                         }
                         
                         string paramType = param["type"]?.ToObject<string>();
@@ -71,14 +76,16 @@ namespace McpUnity.Tools
                         
                         if (string.IsNullOrEmpty(paramType))
                         {
-                            return CreateErrorResponse($"Parameter at index {i} missing 'type'");
+                            tcs.SetResult(CreateErrorResponse($"Parameter at index {i} missing 'type'"));
+                            return;
                         }
                         
                         // Convert parameter
                         var converted = ConvertParameter(paramType, paramValue);
                         if (!converted.success)
                         {
-                            return CreateErrorResponse($"Parameter at index {i}: {converted.error}");
+                            tcs.SetResult(CreateErrorResponse($"Parameter at index {i}: {converted.error}"));
+                            return;
                         }
                         
                         methodArgs[i] = converted.value;
@@ -109,14 +116,16 @@ namespace McpUnity.Tools
                     
                     if (methods.Length == 0)
                     {
-                        return CreateErrorResponse($"Static method '{methodName}' not found in type '{typeName}'");
+                        tcs.SetResult(CreateErrorResponse($"Static method '{methodName}' not found in type '{typeName}'"));
+                        return;
                     }
                     
                     if (methods.Length > 1)
                     {
                         var signatures = string.Join("\n", methods.Select(m => 
                             $"- {m.Name}({string.Join(", ", m.GetParameters().Select(p => p.ParameterType.Name))})"));
-                        return CreateErrorResponse($"Multiple overloads found for '{methodName}':\n{signatures}");
+                        tcs.SetResult(CreateErrorResponse($"Multiple overloads found for '{methodName}':\n{signatures}"));
+                        return;
                     }
                     
                     method = methods[0];
@@ -125,7 +134,8 @@ namespace McpUnity.Tools
                     var methodParameters = method.GetParameters();
                     if (methodParameters.Length != methodArgs.Length)
                     {
-                        return CreateErrorResponse($"Method '{methodName}' expects {methodParameters.Length} parameters, but {methodArgs.Length} provided");
+                        tcs.SetResult(CreateErrorResponse($"Method '{methodName}' expects {methodParameters.Length} parameters, but {methodArgs.Length} provided"));
+                        return;
                     }
                     
                     // Convert parameters to match expected types
@@ -140,7 +150,8 @@ namespace McpUnity.Tools
                         }
                         catch (Exception ex)
                         {
-                            return CreateErrorResponse($"Cannot convert parameter {i} to {methodParameters[i].ParameterType.Name}: {ex.Message}");
+                            tcs.SetResult(CreateErrorResponse($"Cannot convert parameter {i} to {methodParameters[i].ParameterType.Name}: {ex.Message}"));
+                            return;
                         }
                     }
                 }
@@ -150,30 +161,55 @@ namespace McpUnity.Tools
                 
                 object result = method.Invoke(null, methodArgs);
                 
-                // Prepare response
-                var response = new JObject
+                // Check if the result is a Task
+                if (result != null && IsTaskType(method.ReturnType))
                 {
-                    ["success"] = true,
-                    ["type"] = "text",
-                    ["message"] = $"Successfully invoked {typeName}.{methodName}"
-                };
-                
-                // Add return value if any
-                if (method.ReturnType != typeof(void) && result != null)
-                {
-                    response["returnValue"] = SerializeReturnValue(result);
-                    response["returnType"] = method.ReturnType.FullName;
+                    // Handle async method
+                    var taskResult = await HandleAsyncResult(result, method.ReturnType);
+                    
+                    var asyncResponse = new JObject
+                    {
+                        ["success"] = true,
+                        ["type"] = "text",
+                        ["message"] = $"Successfully invoked async method {typeName}.{methodName}"
+                    };
+                    
+                    // Add return value if Task<T>
+                    if (taskResult != null)
+                    {
+                        asyncResponse["returnValue"] = SerializeReturnValue(taskResult);
+                        asyncResponse["returnType"] = method.ReturnType.FullName;
+                    }
+                    
+                    tcs.SetResult(asyncResponse);
                 }
-                
-                return response;
+                else
+                {
+                    // Handle synchronous method
+                    var response = new JObject
+                    {
+                        ["success"] = true,
+                        ["type"] = "text",
+                        ["message"] = $"Successfully invoked {typeName}.{methodName}"
+                    };
+                    
+                    // Add return value if any
+                    if (method.ReturnType != typeof(void) && result != null)
+                    {
+                        response["returnValue"] = SerializeReturnValue(result);
+                        response["returnType"] = method.ReturnType.FullName;
+                    }
+                    
+                    tcs.SetResult(response);
+                }
             }
             catch (TargetInvocationException tie)
             {
-                return CreateErrorResponse($"Method execution failed: {tie.InnerException?.Message ?? tie.Message}");
+                tcs.SetResult(CreateErrorResponse($"Method execution failed: {tie.InnerException?.Message ?? tie.Message}"));
             }
             catch (Exception ex)
             {
-                return CreateErrorResponse($"Unexpected error: {ex.Message}");
+                tcs.SetResult(CreateErrorResponse($"Unexpected error: {ex.Message}"));
             }
         }
         
@@ -385,6 +421,80 @@ namespace McpUnity.Tools
         private JObject CreateErrorResponse(string message)
         {
             return McpUnitySocketHandler.CreateErrorResponse(message, "invocation_error");
+        }
+        
+        /// <summary>
+        /// Check if a type is a Task or Task<T>
+        /// </summary>
+        private bool IsTaskType(Type type)
+        {
+            if (type == typeof(Task))
+                return true;
+                
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Task<>))
+                return true;
+                
+            // Check for UniTask if available
+            if (type.Name == "UniTask" || (type.IsGenericType && type.Name.StartsWith("UniTask`")))
+                return true;
+                
+            return false;
+        }
+        
+        /// <summary>
+        /// Handle async method results (Task, Task<T>, UniTask, UniTask<T>)
+        /// </summary>
+        private async Task<object> HandleAsyncResult(object taskObject, Type taskType)
+        {
+            if (taskObject == null)
+                return null;
+                
+            // Handle regular Task
+            if (taskType == typeof(Task))
+            {
+                var task = (Task)taskObject;
+                await task;
+                return null; // Task has no result
+            }
+            
+            // Handle Task<T>
+            if (taskType.IsGenericType && taskType.GetGenericTypeDefinition() == typeof(Task<>))
+            {
+                // Use dynamic to await and get result
+                dynamic task = taskObject;
+                return await task;
+            }
+            
+            // Handle UniTask/UniTask<T> using reflection since it might not be available
+            if (taskType.Name == "UniTask" || (taskType.IsGenericType && taskType.Name.StartsWith("UniTask`")))
+            {
+                // Get the GetAwaiter method
+                var getAwaiterMethod = taskType.GetMethod("GetAwaiter");
+                if (getAwaiterMethod != null)
+                {
+                    var awaiter = getAwaiterMethod.Invoke(taskObject, null);
+                    var awaiterType = awaiter.GetType();
+                    
+                    // Get IsCompleted property
+                    var isCompletedProp = awaiterType.GetProperty("IsCompleted");
+                    if (isCompletedProp != null)
+                    {
+                        while (!(bool)isCompletedProp.GetValue(awaiter))
+                        {
+                            await Task.Yield();
+                        }
+                    }
+                    
+                    // Get the result
+                    var getResultMethod = awaiterType.GetMethod("GetResult");
+                    if (getResultMethod != null)
+                    {
+                        return getResultMethod.Invoke(awaiter, null);
+                    }
+                }
+            }
+            
+            return null;
         }
     }
 }
